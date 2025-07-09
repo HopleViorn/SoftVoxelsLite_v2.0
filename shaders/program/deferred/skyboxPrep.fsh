@@ -30,6 +30,7 @@ uniform mat4 gbufferProjection, gbufferProjectionInverse;
 
 
 void main() {
+    // Original sky rendering is disabled for Shadertoy clouds integration.
     skyCapture      = vec3(0.0);
 
     vec2 projectionUV   = fract(uv * vec2(1.0, TILES_COUNT));

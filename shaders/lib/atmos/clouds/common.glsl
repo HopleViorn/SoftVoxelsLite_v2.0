@@ -1,6 +1,6 @@
-#define CLOUD_PLANE0_ENABLED
-#define CLOUD_PLANE1_ENABLED
-#define CLOUD_SHEET_ENABLED
+// #define CLOUD_PLANE0_ENABLED
+// #define CLOUD_PLANE1_ENABLED
+// #define CLOUD_SHEET_ENABLED
 
 
 #ifdef freezeAtmosAnim
