@@ -24,6 +24,13 @@ layout(location = 0) out vec3 sceneColor;
 
 #include "/lib/head.glsl"
 #include "/lib/util/encoders.glsl"
+#include "/lib/util/bicubic.glsl"
+
+uniform sampler2D noisetex;
+uniform float frameTimeCounter;
+uniform vec3 sunVec;
+
+#include "/lib/atmos/clouds/shadertoy_clouds.glsl"
 
 in vec2 uv;
 
@@ -38,7 +45,6 @@ uniform sampler2D colortex5;
 
 uniform sampler2D depthtex0;
 uniform sampler2D depthtex1;
-uniform sampler2D noisetex;
 
 uniform sampler3D depthtex2;
 
@@ -51,7 +57,6 @@ uniform int worldTime;
 
 uniform float eyeAltitude;
 uniform float far, near;
-uniform float frameTimeCounter;
 uniform float cloudLightFlip;
 uniform float sunAngle;
 uniform float lightFlip, wetness;
@@ -195,7 +200,7 @@ vec3 ditherBluenoiseStaticF3() {
     #else
     vec3 noise  = texelFetch(depthtex2, ivec3(coord & 255, 0), 0).xyz;
     #endif
-        //noise.xy  = fract(noise.xy + torroidalShift.xy * frameCounter);
+        noise.xy  = fract(noise.xy + torroidalShift.xy * frameCounter);
 
     return noise;
 }
@@ -242,7 +247,7 @@ void main() {
 
     vec3 sceneNormal    = decodeNormal(GBuffer0.xy);
     vec3 viewNormal     = mat3(gbufferModelView) * sceneNormal;
-    
+
     if (water){
         vec3 flatNormal     = clampDIR(normalize(cross(dFdx(scenePos[0]), dFdy(scenePos[0]))));
         vec3 flatViewNormal = normalize(mat3(gbufferModelView) * flatNormal);
@@ -272,13 +277,17 @@ void main() {
             position1   = screenToViewSpace(vec3(screenPos.xy, sceneDepth.y));
             scenePos[1] = viewToSceneSpace(position1);
 
-            sceneColor.rgb  = texture(colortex0, screenPos.xy * ResolutionScale).rgb;
+            sceneColor.rgb = texture(colortex0, screenPos.xy * ResolutionScale).rgb;
 
             worldDir    = clampDIR(normalize(scenePos[1]));
         }
     }
 
     vec3 skyColor       = texture(colortex4, projectSky(worldDir, 0)).rgb;
+    
+    // 添加体积云渲染
+    // if (!landMask(sceneDepth.x) && isEyeInWater == 0) {
+    // }
 
     mat2x3 reflectionAux = unpackReflectionAux(texture(colortex3, uv));
 
@@ -402,18 +411,12 @@ void main() {
         }
     }
 
-
-
-
-
-    
-
     #if FogMode == 1
     vec2 PlanetSphere   = rsi(vec3(0, planetRad + max(eyeAltitude, 1), 0), worldDir, planetRad);
     bool IsPlanet       = PlanetSphere.x > 0.0;
     vec3 SurfacePosition = IsPlanet && !(landMask(sceneDepth.x)) ? (worldDir * max0(PlanetSphere.x)) : scenePos[0];
 
-    if ((landMask(sceneDepth.x) || IsPlanet) && isEyeInWater == 0) sceneColor.rgb = simpleFog(sceneColor.rgb, SurfacePosition, fogScatterColor, normalize(position0), mat2x3(sunDirView, moonDirView), caveMult);
+    // if ((landMask(sceneDepth.x) || IsPlanet) && isEyeInWater == 0) sceneColor.rgb = simpleFog(sceneColor.rgb, SurfacePosition, fogScatterColor, normalize(position0), mat2x3(sunDirView, moonDirView), caveMult);
     #endif
 
     if (isEyeInWater == 1) {
@@ -421,4 +424,10 @@ void main() {
         sceneColor = getWaterFog(sceneColor, length(position0), fogScatterColor);
         #endif
     }
+
+    vec3 ro = cameraPosition;
+    vec3 rd = worldDir;
+    ivec2 px = ivec2(gl_FragCoord.xy);
+    vec4 clouds = renderShadertoyClouds(ro, rd, px);
+    sceneColor = sceneColor * (1.0 - clouds.a) + clouds.rgb;
 }

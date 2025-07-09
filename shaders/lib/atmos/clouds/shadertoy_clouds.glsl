@@ -1,3 +1,6 @@
+// To be connected from the main shader
+// uniform sampler2D noisetex;r
+// uniform float frameTimeCounter;
 
 // 0: sunset look
 // 1: bright look
@@ -13,39 +16,35 @@
 #define USE_LOD 0
 
 // To be connected from the main shader
-uniform sampler2D noisetex;
-uniform float frameTimeCounter;
-uniform vec3 sunVec; // Should be the sun direction vector
+// uniform vec3 sunVec; // Should be the sun direction vector
+
+
+// Improved Perlin noise for clouds
+float hash(vec3 p) {
+    p  = fract(p * 0.3183099 + .1);
+    p *= 17.0;
+    return fract(p.x*p.y*p.z*(p.x+p.y+p.z));
+}
 
 float noise( in vec3 x )
 {
     vec3 p = floor(x);
     vec3 f = fract(x);
-	f = f*f*(3.0-2.0*f);
-
-#if NOISE_METHOD==0
-    // Requires a 3D noise texture, which might not be available.
-    // x = p + f;
-    // return textureLod(iChannel2,(x+0.5)/32.0,0.0).x*2.0-1.0;
-    return 0.0;
-#endif
-#if NOISE_METHOD==1
-	vec2 uv = (p.xy+vec2(37.0,239.0)*p.z) + f.xy;
-    // Assuming noisetex is 256x256. This might need adjustment.
-    vec2 rg = textureLod(noisetex,(uv+0.5)/256.0,0.0).yx;
-	return mix( rg.x, rg.y, f.z )*2.0-1.0;
-#endif    
-#if NOISE_METHOD==2
-    // Requires specific texture setup, not implemented for now.
-    // ivec3 q = ivec3(p);
-	// ivec2 uv = q.xy + ivec2(37,239)*q.z;
-	// vec2 rg = mix(mix(texelFetch(iChannel0,(uv           )&255,0),
-	// 			      texelFetch(iChannel0,(uv+ivec2(1,0))&255,0),f.x),
-	// 			  mix(texelFetch(iChannel0,(uv+ivec2(0,1))&255,0),
-	// 			      texelFetch(iChannel0,(uv+ivec2(1,1))&255,0),f.x),f.y).yx;
-	// return mix( rg.x, rg.y, f.z )*2.0-1.0;
-    return 0.0;
-#endif    
+    f = f*f*(3.0-2.0*f);
+    
+    // Improved Perlin noise
+    float n = p.x + p.y*157.0 + p.z*113.0;
+    vec4 a = vec4(n, n+1.0, n+157.0, n+158.0);
+    vec4 b = vec4(n+113.0, n+114.0, n+270.0, n+271.0);
+    vec4 v1 = fract(sin(a)*43758.5453);
+    vec4 v2 = fract(sin(b)*43758.5453);
+    
+    vec4 lerp_x = mix(v1, v2, f.x);
+    vec2 lerp_y = mix(lerp_x.xy, lerp_x.zw, f.y);
+    float lerp_z = mix(lerp_y.x, lerp_y.y, f.z);
+    
+    return lerp_z*2.0-1.0;
+    // return 1.0;
 }
 
 #if LOOK==0
@@ -81,11 +80,13 @@ float map( in vec3 p, int oct )
 const int kDiv = 1; // make bigger for higher quality
 // const vec3 sundir = normalize( vec3(1.0,0.0,-1.0) ); // Now using sunVec uniform
 
+vec3 testSunVec = sunVec;
+
 vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
 {
     // bounding planes	
-    const float yb = 150;
-    const float yt = 160;
+    const float yb = 180;
+    const float yt = 200;
     float tb = (yb-ro.y)/rd.y;
     float tt = (yt-ro.y)/rd.t;
 
@@ -98,6 +99,11 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
         tmin = tt;
         tmax = tb;
     }
+    else if (ro.y < yb) {
+        if (tb < 0.0) return vec4(0.0);
+        tmin = tb;
+        tmax = tt;
+    }
     else
     {
         // inside clouds slabs
@@ -106,6 +112,7 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
         if( tt>0.0 ) tmax = min( tmax, tt );
         if( tb>0.0 ) tmax = min( tmax, tb );
     }
+
     
     // dithered near distance
     // Original used iChannel1 for dithering. For now, this is disabled.
@@ -114,7 +121,7 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
     
     // raymarch loop
 	vec4 sum = vec4(0.0);
-    for( int i=0; i<190*kDiv; i++ )
+    for( int i=0; i<200*kDiv; i++ )
     {
        // step size
        float dt = max(0.05,0.02*t/float(kDiv));
@@ -128,11 +135,13 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
        
        // sample cloud
        vec3 pos = ro + t*rd;
-       float den = map( pos,oct );
-       if( den>0.01 ) // if inside
+    //    float den = map( pos,oct );
+       float den = noise(pos);
+       if( den > 0.1 ) // if inside
        {
            // do lighting
-           float dif = clamp((den - map(pos+0.3*sunVec,oct))/0.25, 0.0, 1.0 );
+        //    float dif = clamp((den - map(pos+0.3*sunVec,oct))/0.25, 0.0, 1.0 );
+           float dif = clamp((den - noise(pos+0.3*sunVec))/0.25, 0.0, 1.0 );
            vec3  lin = vec3(0.65,0.65,0.75)*1.1 + 0.8*vec3(1.0,0.6,0.3)*dif;
            vec4  col = vec4( mix( vec3(1.0,0.93,0.84), vec3(0.25,0.3,0.4), den ), den );
            col.xyz *= lin;
@@ -142,6 +151,7 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
            col.w    = min(col.w*8.0*dt,1.0);
            col.rgb *= col.a;
            sum += col*(1.0-sum.a);
+        //    sum = vec4(1.0,0.0,0.0,1.0);
        }
        // advance ray
        t += dt;
@@ -154,7 +164,7 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
 
 vec4 renderShadertoyClouds( in vec3 ro, in vec3 rd, in ivec2 px )
 {
-	float sun = clamp( dot(sunVec,rd), 0.0, 1.0 );
+	float sun = clamp( dot(testSunVec,rd), 0.0, 1.0 );
 
     // background sky
     vec3 col = vec3(0.76,0.75,0.95);
@@ -163,6 +173,8 @@ vec4 renderShadertoyClouds( in vec3 ro, in vec3 rd, in ivec2 px )
 
     // // clouds    
     vec4 res = raymarch( ro, rd, col, px );
+    return res;
+
     col = col*(1.0-res.w) + res.xyz;
     
     // // sun glare    
@@ -171,6 +183,7 @@ vec4 renderShadertoyClouds( in vec3 ro, in vec3 rd, in ivec2 px )
     // // tonemap
     col = smoothstep(0.15,1.1,col);
 
+    // col = testSunVec;
 
     return vec4( col, 1.0 );
 }
