@@ -1,80 +1,127 @@
-// To be connected from the main shader
-// uniform sampler2D noisetex;r
-// uniform float frameTimeCounter;
-
-// 0: sunset look
-// 1: bright look
-#define LOOK 0
-
-// 0: one 3d texture lookup
-// 1: two 2d texture lookups with hardware interpolation
-// 2: two 2d texture lookups with software interpolation
-#define NOISE_METHOD 1
 
 // 0: no LOD
 // 1: yes LOD
 #define USE_LOD 0
 
-// To be connected from the main shader
-// uniform vec3 sunVec; // Should be the sun direction vector
+// 高质量Simplex噪声实现
+vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
 
+float simplexNoise(vec3 v) {
+    const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
 
-// Improved Perlin noise for clouds
-float hash(vec3 p) {
-    p  = fract(p * 0.3183099 + .1);
-    p *= 17.0;
-    return fract(p.x*p.y*p.z*(p.x+p.y+p.z));
+    // 第一角
+    vec3 i  = floor(v + dot(v, C.yyy));
+    vec3 x0 = v - i + dot(i, C.xxx);
+
+    // 其他角
+    vec3 g = step(x0.yzx, x0.xyz);
+    vec3 l = 1.0 - g;
+    vec3 i1 = min(g.xyz, l.zxy);
+    vec3 i2 = max(g.xyz, l.zxy);
+
+    vec3 x1 = x0 - i1 + C.xxx;
+    vec3 x2 = x0 - i2 + C.yyy;
+    vec3 x3 = x0 - D.yyy;
+
+    // 排列
+    i = mod289(i);
+    vec4 p = permute(permute(permute(
+             i.z + vec4(0.0, i1.z, i2.z, 1.0))
+           + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+           + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+
+    // 梯度计算
+    float n_ = 0.142857142857; // 1/7
+    vec3 ns = n_ * D.wyz - D.xzx;
+
+    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+
+    vec4 x_ = floor(j * ns.z);
+    vec4 y_ = floor(j - 7.0 * x_);
+
+    vec4 x = x_ * ns.x + ns.yyyy;
+    vec4 y = y_ * ns.x + ns.yyyy;
+    vec4 h = 1.0 - abs(x) - abs(y);
+
+    vec4 b0 = vec4(x.xy, y.xy);
+    vec4 b1 = vec4(x.zw, y.zw);
+
+    vec4 s0 = floor(b0)*2.0 + 1.0;
+    vec4 s1 = floor(b1)*2.0 + 1.0;
+    vec4 sh = -step(h, vec4(0.0));
+
+    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+
+    vec3 p0 = vec3(a0.xy, h.x);
+    vec3 p1 = vec3(a0.zw, h.y);
+    vec3 p2 = vec3(a1.xy, h.z);
+    vec3 p3 = vec3(a1.zw, h.w);
+
+    // 归一化梯度
+    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+
+    // 混合结果
+    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+    m = m * m;
+    return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
 }
 
-float noise( in vec3 x )
-{
-    vec3 p = floor(x);
-    vec3 f = fract(x);
-    f = f*f*(3.0-2.0*f);
+// 分形布朗运动 (FBM) 用于体积云
+float fbm(vec3 p, int octaves, float lacunarity, float gain) {
+    float total = 0.0;
+    float frequency = 1.0;
+    float amplitude = 1.0;
+    float maxValue = 0.0;
     
-    // Improved Perlin noise
-    float n = p.x + p.y*157.0 + p.z*113.0;
-    vec4 a = vec4(n, n+1.0, n+157.0, n+158.0);
-    vec4 b = vec4(n+113.0, n+114.0, n+270.0, n+271.0);
-    vec4 v1 = fract(sin(a)*43758.5453);
-    vec4 v2 = fract(sin(b)*43758.5453);
+    for(int i=0; i<octaves; i++) {
+        total += simplexNoise(p * frequency) * amplitude;
+        maxValue += amplitude;
+        amplitude *= gain;
+        frequency *= lacunarity;
+    }
     
-    vec4 lerp_x = mix(v1, v2, f.x);
-    vec2 lerp_y = mix(lerp_x.xy, lerp_x.zw, f.y);
-    float lerp_z = mix(lerp_y.x, lerp_y.y, f.z);
-    
-    return lerp_z*2.0-1.0;
-    // return 1.0;
+    return total / maxValue;
 }
 
-#if LOOK==0
-float map( in vec3 p, int oct )
-{
-	vec3 q = p - vec3(0.0,0.1,1.0)*frameTimeCounter;
-    float g = 0.5+0.5*noise( q*0.3 );
+// 改进的云密度函数
+float cloudDensity(vec3 p, float time) {
+    // p.y -= 100;
+    float scale = 0.01;
+    float time_scale = 0.1;
+
+    //不scale y
+
+    p = scale * p;
+
+    // p.x *= scale;
+    // p.z *= scale;
     
-	float f;
-    f  = 0.50000*noise( q ); q = q*2.02;
-    #if USE_LOD==1
-    if( oct>=2 ) 
-    #endif
-    f += 0.25000*noise( q ); q = q*2.23;
-    #if USE_LOD==1
-    if( oct>=3 )
-    #endif
-    f += 0.12500*noise( q ); q = q*2.41;
-    #if USE_LOD==1
-    if( oct>=4 )
-    #endif
-    f += 0.06250*noise( q ); q = q*2.62;
-    #if USE_LOD==1
-    if( oct>=5 )
-    #endif
-    f += 0.03125*noise( q ); 
+
+    // 基础形状
+    vec3 q = p * 0.5 + vec3(0.0, time*time_scale*0.05, time*time_scale*0.1);
+    float shape = fbm(q, 4, 0.1, 0.01);
     
-    f = mix( f*0.1-0.5, f, g*g );
-        
-    return 1.5*f - 0.5 - p.y;
+    // 细节层
+    vec3 r = p * 1.5 + vec3(0.0, time*time_scale*0.1, 0.0);
+    float details = fbm(r, 3, 2.5, 0.4);
+    
+    // 结合形状和细节
+    float density = shape - details*0.2;
+    
+    // 添加垂直渐变
+    // density -= smoothstep(0.0, 0.3, p.y/200.0);
+    // density += smoothstep(0.7, 1.0, p.y/200.0)*0.3;
+    
+    return clamp(density, 0.0, 1.0);
 }
 
 const int kDiv = 1; // make bigger for higher quality
@@ -82,13 +129,94 @@ const int kDiv = 1; // make bigger for higher quality
 
 vec3 testSunVec = sunVec;
 
+// vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
+// {
+//     // bounding planes	
+//     const float yb = 180;
+//     const float yt = 250;
+//     float tb = (yb-ro.y)/rd.y;
+//     float tt = (yt-ro.y)/rd.t;
+
+//     // find tigthest possible raymarching segment
+//     float tmin, tmax;
+//     if( ro.y>yt )
+//     {
+//         // above top plane
+//         if( tt<0.0 ) return vec4(0.0); // early exit
+//         tmin = tt;
+//         tmax = tb;
+//     }
+//     else if (ro.y < yb) {
+//         if (tb < 0.0) return vec4(0.0);
+//         tmin = tb;
+//         tmax = tt;
+//     }else{
+//         tmin = 0.0;
+//         tmax = 60.0;
+//     }
+//     // tmin = max(tmin, 0.0);
+//     // tmax = min(tmax, 60.0);
+//     // inside clouds slabs
+//     // tmin = 0.0;
+//     // tmax = 60.0;
+//     // if( tt>0.0 ) tmax = min( tmax, tt );
+//     // if( tb>0.0 ) tmax = min( tmax, tb );
+
+    
+//     float t = tmin;
+    
+//     // raymarch loop
+// 	vec4 sum = vec4(0.0);
+//     for( int i=0; i<200*kDiv; i++ )
+//     {
+//        // step size
+//        float dt = max(0.05,0.02*t/float(kDiv));
+
+//        // lod
+//        #if USE_LOD==0
+//        const int oct = 5;
+//        #else
+//        int oct = 5 - int( log2(1.0+t*0.5) );
+//        #endif
+       
+//        // sample cloud
+//        vec3 pos = ro + t*rd;
+//     //    float den = map( pos,oct );
+//        float den = cloudDensity(pos, frameTimeCounter);
+//        if( den > 0.01 ) // if inside
+//        {
+//            // do lighting
+//         //    float dif = clamp((den - map(pos+0.3*sunVec,oct))/0.25, 0.0, 1.0 );
+//            float dif = clamp((den - cloudDensity(pos+0.3*sunVec, frameTimeCounter))/0.25, 0.0, 1.0 );
+//            vec3  lin = vec3(0.65,0.65,0.75)*1.1 + 0.8*vec3(1.0,0.6,0.3)*dif;
+//            vec4  col = vec4( mix( vec3(1.0,0.93,0.84), vec3(0.25,0.3,0.4), den ), den );
+//            col.xyz *= lin;
+//            // fog
+//         //    col.xyz = mix(col.xyz,bgcol, 1.0-exp2(-0.1*t));
+//            // composite front to back
+//            col.w    = min(col.w*8.0*dt,1.0);
+//            col.rgb *= col.a;
+//            sum += col*(1.0-sum.a);
+//         //    sum = vec4(1.0,0.0,0.0,1.0);
+//        }
+//        // advance ray
+//        t += dt;
+//        // until far clip or full opacity
+//        if( t>tmax || sum.a>0.99 ) break;
+//     }
+
+//     return clamp( sum, 0.0, 1.0 );
+// }
+
+
 vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
 {
-    // bounding planes	
-    const float yb = 180;
-    const float yt = 200;
+    // 调整边界使云层更高更厚
+    const float yb = 180;  // 降低底部
+    const float yt = 250;  // 提高顶部
+    
     float tb = (yb-ro.y)/rd.y;
-    float tt = (yt-ro.y)/rd.t;
+    float tt = (yt-ro.y)/rd.y;
 
     // find tigthest possible raymarching segment
     float tmin, tmax;
@@ -103,96 +231,127 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
         if (tb < 0.0) return vec4(0.0);
         tmin = tb;
         tmax = tt;
-    }
-    else
-    {
-        // inside clouds slabs
+    }else{
         tmin = 0.0;
         tmax = 60.0;
-        if( tt>0.0 ) tmax = min( tmax, tt );
-        if( tb>0.0 ) tmax = min( tmax, tb );
     }
+    // tmin = max(tmin, 0.0);
+    // tmax = min(tmax, 60.0);
+    // inside clouds slabs
+    // tmin = 0.0;
+    // tmax = 60.0;
+    // if( tt>0.0 ) tmax = min( tmax, tt );
+    // if( tb>0.0 ) tmax = min( tmax, tb );
 
     
-    // dithered near distance
-    // Original used iChannel1 for dithering. For now, this is disabled.
-    // It could be connected to a blue noise texture later.
-    float t = tmin; //+ 0.1*texelFetch( iChannel1, px&1023, 0 ).x;
+    float t = tmin;
+
+    // 光线步进循环
+    vec4 sum = vec4(0.0);
+    float transmittance = 1.0;  // 新增：透射率
     
-    // raymarch loop
-	vec4 sum = vec4(0.0);
     for( int i=0; i<200*kDiv; i++ )
     {
-       // step size
-       float dt = max(0.05,0.02*t/float(kDiv));
-
-       // lod
-       #if USE_LOD==0
-       const int oct = 5;
-       #else
-       int oct = 5 - int( log2(1.0+t*0.5) );
-       #endif
-       
-       // sample cloud
-       vec3 pos = ro + t*rd;
-    //    float den = map( pos,oct );
-       float den = noise(pos);
-       if( den > 0.1 ) // if inside
-       {
-           // do lighting
-        //    float dif = clamp((den - map(pos+0.3*sunVec,oct))/0.25, 0.0, 1.0 );
-           float dif = clamp((den - noise(pos+0.3*sunVec))/0.25, 0.0, 1.0 );
-           vec3  lin = vec3(0.65,0.65,0.75)*1.1 + 0.8*vec3(1.0,0.6,0.3)*dif;
-           vec4  col = vec4( mix( vec3(1.0,0.93,0.84), vec3(0.25,0.3,0.4), den ), den );
-           col.xyz *= lin;
-           // fog
-           col.xyz = mix(col.xyz,bgcol, 1.0-exp2(-0.1*t));
-           // composite front to back
-           col.w    = min(col.w*8.0*dt,1.0);
-           col.rgb *= col.a;
-           sum += col*(1.0-sum.a);
-        //    sum = vec4(1.0,0.0,0.0,1.0);
-       }
-       // advance ray
-       t += dt;
-       // until far clip or full opacity
-       if( t>tmax || sum.a>0.99 ) break;
+        // 增大步长以覆盖更大区域
+        float dt = max(0.1, 0.04*t/float(kDiv));
+        
+        vec3 pos = ro + t*rd;
+        float den = cloudDensity(pos, frameTimeCounter);
+        
+        if( den > 0.01 )
+        {
+            // ========== 关键修改：增强光照效果 ==========
+            // 1. 增加光照采样距离
+            float lightStep = 0.5; // 增加光照采样距离
+            vec3 lightPos = pos + lightStep * testSunVec;
+            
+            // 2. 多次采样获取更准确的光照
+            float lightDensity = 0.0;
+            for(int j = 0; j < 3; j++) {
+                lightDensity += cloudDensity(
+                    lightPos + j * lightStep/3.0 * testSunVec, 
+                    frameTimeCounter
+                );
+            }
+            lightDensity /= 3.0;
+            
+            // 3. 增强密度差异计算
+            float densityDiff = den - lightDensity;
+            float dif = clamp(densityDiff * 4.0, 0.0, 1.0); // 增加对比度
+            
+            // 4. 改进的光照模型
+            vec3 ambient = vec3(0.4, 0.5, 0.6); // 环境光
+            vec3 directLight = vec3(1.0, 0.8, 0.6) * dif; // 直射光
+            
+            // 5. 考虑光线透射
+            float lightTrans = exp(-lightDensity * lightStep * 2.0);
+            vec3 lin = ambient + directLight * lightTrans;
+            
+            // 6. 基于高度的颜色变化
+            float heightFactor = clamp((pos.y - yb) / (yt - yb), 0.0, 1.0);
+            vec3 cloudColor = mix(
+                vec3(0.7, 0.7, 0.8),  // 底部较暗
+                vec3(1.0, 0.95, 0.9), // 顶部较亮
+                heightFactor
+            );
+            
+            vec4 col = vec4(cloudColor * lin, den);
+            
+            // ========== 能量守恒的体渲染 ==========
+            // 计算吸收和散射
+            float absorption = den * dt * 0.8;
+            float scattering = den * dt * 0.5;
+            
+            // 透射率更新
+            float transStep = exp(-absorption);
+            transmittance *= transStep;
+            
+            // 光源贡献
+            vec3 lightContrib = col.rgb * scattering * transmittance;
+            
+            // 合成
+            sum.rgb += lightContrib;
+            sum.a = 1.0 - transmittance;
+            
+            // ========== 提前退出优化 ==========
+            if(sum.a > 0.99 || transmittance < 0.01) break;
+        }
+        
+        t += dt;
+        if(t > tmax) break;
     }
-
-    return clamp( sum, 0.0, 1.0 );
+    
+    // 添加大气散射效果
+    float atmos = clamp(dot(sunVec, rd), 0.0, 1.0);
+    sum.rgb += 0.2 * vec3(1.0, 0.7, 0.4) * pow(atmos, 8.0) * (1.0 - sum.a);
+    
+    return clamp(sum, 0.0, 1.0);
 }
 
 vec4 renderShadertoyClouds( in vec3 ro, in vec3 rd, in ivec2 px )
 {
-	float sun = clamp( dot(testSunVec,rd), 0.0, 1.0 );
-
-    // background sky
-    vec3 col = vec3(0.76,0.75,0.95);
-    col -= 0.6*vec3(0.90,0.75,0.95)*rd.y;
-	col += 0.2*vec3(1.00,0.60,0.10)*pow( sun, 8.0 );
-
-    // // clouds    
-    vec4 res = raymarch( ro, rd, col, px );
+    vec4 res = raymarch( ro, rd, vec3(0.0), px );
     return res;
+}
+	// float sun = clamp( dot(testSunVec,rd), 0.0, 1.0 );
 
-    col = col*(1.0-res.w) + res.xyz;
+    // // background sky
+    // vec3 col = vec3(0.76,0.75,0.95);
+    // col -= 0.6*vec3(0.90,0.75,0.95)*rd.y;
+	// col += 0.2*vec3(1.00,0.60,0.10)*pow( sun, 8.0 );
+//     return res;
+
+//     col = col*(1.0-res.w) + res.xyz;
     
-    // // sun glare    
-	col += 0.2*vec3(1.0,0.4,0.2)*pow( sun, 3.0 );
+//     // // sun glare    
+// 	col += 0.2*vec3(1.0,0.4,0.2)*pow( sun, 3.0 );
 
-    // // tonemap
-    col = smoothstep(0.15,1.1,col);
+//     // // tonemap
+//     col = smoothstep(0.15,1.1,col);
 
-    // col = testSunVec;
+//     // col = testSunVec;
 
-    return vec4( col, 1.0 );
-}
+//     return vec4( col, 1.0 );
+// }
 
-#else
 
-// The other look is not ported for now.
-vec4 renderShadertoyClouds( in vec3 ro, in vec3 rd, in ivec2 px ) {
-    return vec4(0.0);
-}
-
-#endif
