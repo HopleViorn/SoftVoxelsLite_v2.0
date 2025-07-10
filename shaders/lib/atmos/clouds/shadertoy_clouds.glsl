@@ -222,42 +222,21 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmax
 
     // find tigthest possible raymarching segment
     float tmin, tmax;
-    // if( ro.y>yt )
-    // {
-    //     // above top plane
-    //     tmin = tt;
-    //     tmax = tb;
-    // }
-    // else if (ro.y < yb) {
-    //     tmin = tb;
-    //     tmax = tt;
-    // }else{
-    //     tmin = 0.0;
-    //     tmax =  600.0;
-    // }
-    tmin = 0.0;
-    tmax = 600.0;
+
+
+    tmin = min(tt, tb);
+    tmax = max(tt, tb);
 
     // return vec4(tmaxx, 0.0, 0.0, 1.0);
-
-
     tmax = min(tmax, tmaxx);
     tmin = min(tmin, tmaxx);
 
     tmin = max(tmin, 0.0);
-    // tmax = min(tmax, 60.0);
+    tmax = min(tmax, 300.0);
 
     if(tmax <= tmin) {
         return vec4(0.0);
     }
-    // tmin = max(tmin, 0.0);
-    // tmax = min(tmax, 60.0);
-    // inside clouds slabs
-    // tmin = 0.0;
-    // tmax = 60.0;
-    // if( tt>0.0 ) tmax = min( tmax, tt );
-    // if( tb>0.0 ) tmax = min( tmax, tb );
-
     
     float t = tmin;
 
