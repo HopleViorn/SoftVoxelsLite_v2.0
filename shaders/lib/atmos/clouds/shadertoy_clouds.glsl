@@ -127,7 +127,7 @@ float cloudDensity(vec3 p, float time) {
 const int kDiv = 1; // make bigger for higher quality
 // const vec3 sundir = normalize( vec3(1.0,0.0,-1.0) ); // Now using sunVec uniform
 
-vec3 testSunVec = sunVec;
+vec3 testSunVec = -sunVec;
 
 // vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
 // {
