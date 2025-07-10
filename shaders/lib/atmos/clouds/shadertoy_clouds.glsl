@@ -3,6 +3,8 @@
 // 1: yes LOD
 #define USE_LOD 0
 
+
+
 // 高质量Simplex噪声实现
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -209,7 +211,7 @@ vec3 testSunVec = -sunVec;
 // }
 
 
-vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
+vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmaxx )
 {
     // 调整边界使云层更高更厚
     const float yb = 180;  // 降低底部
@@ -220,20 +222,33 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
 
     // find tigthest possible raymarching segment
     float tmin, tmax;
-    if( ro.y>yt )
-    {
-        // above top plane
-        if( tt<0.0 ) return vec4(0.0); // early exit
-        tmin = tt;
-        tmax = tb;
-    }
-    else if (ro.y < yb) {
-        if (tb < 0.0) return vec4(0.0);
-        tmin = tb;
-        tmax = tt;
-    }else{
-        tmin = 0.0;
-        tmax = 60.0;
+    // if( ro.y>yt )
+    // {
+    //     // above top plane
+    //     tmin = tt;
+    //     tmax = tb;
+    // }
+    // else if (ro.y < yb) {
+    //     tmin = tb;
+    //     tmax = tt;
+    // }else{
+    //     tmin = 0.0;
+    //     tmax =  600.0;
+    // }
+    tmin = 0.0;
+    tmax = 600.0;
+
+    // return vec4(tmaxx, 0.0, 0.0, 1.0);
+
+
+    tmax = min(tmax, tmaxx);
+    tmin = min(tmin, tmaxx);
+
+    tmin = max(tmin, 0.0);
+    // tmax = min(tmax, 60.0);
+
+    if(tmax <= tmin) {
+        return vec4(0.0);
     }
     // tmin = max(tmin, 0.0);
     // tmax = min(tmax, 60.0);
@@ -254,7 +269,7 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
     {
         // 增大步长以覆盖更大区域
         float dt = max(0.1, 0.04*t/float(kDiv));
-        
+
         vec3 pos = ro + t*rd;
         float den = cloudDensity(pos, frameTimeCounter);
         
@@ -328,30 +343,11 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
     return clamp(sum, 0.0, 1.0);
 }
 
-vec4 renderShadertoyClouds( in vec3 ro, in vec3 rd, in ivec2 px )
+vec4 renderShadertoyClouds( in vec3 ro, in vec3 rd, in ivec2 px, in float tmaxx )
 {
-    vec4 res = raymarch( ro, rd, vec3(0.0), px );
+    vec4 res = raymarch( ro, rd, vec3(0.0), px, tmaxx );
     return res;
 }
-	// float sun = clamp( dot(testSunVec,rd), 0.0, 1.0 );
 
-    // // background sky
-    // vec3 col = vec3(0.76,0.75,0.95);
-    // col -= 0.6*vec3(0.90,0.75,0.95)*rd.y;
-	// col += 0.2*vec3(1.00,0.60,0.10)*pow( sun, 8.0 );
-//     return res;
-
-//     col = col*(1.0-res.w) + res.xyz;
-    
-//     // // sun glare    
-// 	col += 0.2*vec3(1.0,0.4,0.2)*pow( sun, 3.0 );
-
-//     // // tonemap
-//     col = smoothstep(0.15,1.1,col);
-
-//     // col = testSunVec;
-
-//     return vec4( col, 1.0 );
-// }
 
 

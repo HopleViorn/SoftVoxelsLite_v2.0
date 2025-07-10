@@ -30,7 +30,6 @@ uniform sampler2D noisetex;
 uniform float frameTimeCounter;
 uniform vec3 sunVec;
 
-#include "/lib/atmos/clouds/shadertoy_clouds.glsl"
 
 in vec2 uv;
 
@@ -83,6 +82,7 @@ uniform mat4 shadowProjection, shadowProjectionInverse;
 #include "/lib/util/transforms.glsl"
 #include "/lib/frag/bluenoise.glsl"
 
+#include "/lib/atmos/clouds/shadertoy_clouds.glsl"
 #include "/lib/atmos/project.glsl"
 
 #include "/lib/atmos/air/const.glsl"
@@ -424,10 +424,36 @@ void main() {
         sceneColor = getWaterFog(sceneColor, length(position0), fogScatterColor);
         #endif
     }
-
     vec3 ro = cameraPosition;
     vec3 rd = worldDir;
+
+    // 计算云渲染的最大光线步进距离
+    float tmaxx;
+    if (!landMask(sceneDepth.x)) {
+        // 天空区域，使用默认远距离
+        tmaxx = 1000;
+    } else {
+        // 有场景几何，计算光线方向上的最大步进距离
+        
+        // 计算从相机到场景点的向量
+        vec3 rayVector = scenePos[0];
+        
+        // 计算在光线方向上的投影长度
+        // 这是光线追踪中真正需要的t值（参数化距离）
+        float dotProduct = dot(rayVector, rd);
+        float lengthProduct = length(rayVector);
+        tmaxx = dotProduct;
+
+        // vec3 sss = scenePos[0]+ cameraPosition;
+
+        // sceneColor = vec3(sin(sss.x*0.1)*0.5+0.5,sin(sss.y*0.1)*0.5+0.5,sin(sss.z*0.1)*0.5+0.5);
+
+        
+        // 确保值在合理范围内
+        tmaxx = clamp(tmaxx, 0.0, 1000.0);
+    }
+    
     ivec2 px = ivec2(gl_FragCoord.xy);
-    vec4 clouds = renderShadertoyClouds(ro, rd, px);
+    vec4 clouds = renderShadertoyClouds(ro, rd, px, tmaxx);
     sceneColor = sceneColor * (1.0 - clouds.a) + clouds.rgb;
 }
