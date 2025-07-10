@@ -256,26 +256,23 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmax
         {
             // ========== 关键修改：增强光照效果 ==========
             // 1. 增加光照采样距离
-            float lightStep = 0.5; // 增加光照采样距离
+            float lightStep = 0.3; // 增加光照采样距离
             vec3 lightPos = pos + lightStep * testSunVec;
             
             // 2. 多次采样获取更准确的光照
             float lightDensity = 0.0;
-            for(int j = 0; j < 3; j++) {
-                lightDensity += cloudDensity(
-                    lightPos + j * lightStep/3.0 * testSunVec, 
-                    frameTimeCounter
-                );
-            }
-            lightDensity /= 3.0;
+            lightDensity += cloudDensity(
+                lightPos + lightStep * testSunVec, 
+                frameTimeCounter
+            );
             
             // 3. 增强密度差异计算
             float densityDiff = den - lightDensity;
-            float dif = clamp(densityDiff * 4.0, 0.0, 1.0); // 增加对比度
+            float dif = clamp(densityDiff * 2.0, 0.0, 1.0); // 增加对比度
             
             // 4. 改进的光照模型
-            vec3 ambient = vec3(0.4, 0.5, 0.6); // 环境光
-            vec3 directLight = vec3(1.0, 0.8, 0.6) * dif; // 直射光
+            vec3 ambient = vec3(0.9, 0.9, 0.9); // 环境光
+            vec3 directLight = vec3(1.0, 1.0, 1.0) * dif; // 直射光
             
             // 5. 考虑光线透射
             float lightTrans = exp(-lightDensity * lightStep * 2.0);
@@ -284,8 +281,8 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmax
             // 6. 基于高度的颜色变化
             float heightFactor = clamp((pos.y - yb) / (yt - yb), 0.0, 1.0);
             vec3 cloudColor = mix(
-                vec3(0.7, 0.7, 0.8),  // 底部较暗
-                vec3(1.0, 0.95, 0.9), // 顶部较亮
+                vec3(0.9, 0.9, 0.9),  // 底部较暗
+                vec3(1.0, 1.0, 1.0), // 顶部较亮
                 heightFactor
             );
             
