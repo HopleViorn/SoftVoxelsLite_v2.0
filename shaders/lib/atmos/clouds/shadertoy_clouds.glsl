@@ -120,100 +120,18 @@ float cloudDensity(vec3 p, float time) {
     float density = shape - details*0.2;
     
     // 添加垂直渐变
-    // density -= smoothstep(0.0, 0.3, p.y/200.0);
-    // density += smoothstep(0.7, 1.0, p.y/200.0)*0.3;
+    density -= smoothstep(0.0, 0.3, p.y/200.0);
+    density += smoothstep(0.7, 1.0, p.y/200.0)*0.3;
     
     return clamp(density, 0.0, 1.0);
 }
 
 const int kDiv = 1; // make bigger for higher quality
-// const vec3 sundir = normalize( vec3(1.0,0.0,-1.0) ); // Now using sunVec uniform
 
-vec3 testSunVec = -sunVec;
-
-// vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px )
-// {
-//     // bounding planes	
-//     const float yb = 180;
-//     const float yt = 250;
-//     float tb = (yb-ro.y)/rd.y;
-//     float tt = (yt-ro.y)/rd.t;
-
-//     // find tigthest possible raymarching segment
-//     float tmin, tmax;
-//     if( ro.y>yt )
-//     {
-//         // above top plane
-//         if( tt<0.0 ) return vec4(0.0); // early exit
-//         tmin = tt;
-//         tmax = tb;
-//     }
-//     else if (ro.y < yb) {
-//         if (tb < 0.0) return vec4(0.0);
-//         tmin = tb;
-//         tmax = tt;
-//     }else{
-//         tmin = 0.0;
-//         tmax = 60.0;
-//     }
-//     // tmin = max(tmin, 0.0);
-//     // tmax = min(tmax, 60.0);
-//     // inside clouds slabs
-//     // tmin = 0.0;
-//     // tmax = 60.0;
-//     // if( tt>0.0 ) tmax = min( tmax, tt );
-//     // if( tb>0.0 ) tmax = min( tmax, tb );
-
-    
-//     float t = tmin;
-    
-//     // raymarch loop
-// 	vec4 sum = vec4(0.0);
-//     for( int i=0; i<200*kDiv; i++ )
-//     {
-//        // step size
-//        float dt = max(0.05,0.02*t/float(kDiv));
-
-//        // lod
-//        #if USE_LOD==0
-//        const int oct = 5;
-//        #else
-//        int oct = 5 - int( log2(1.0+t*0.5) );
-//        #endif
-       
-//        // sample cloud
-//        vec3 pos = ro + t*rd;
-//     //    float den = map( pos,oct );
-//        float den = cloudDensity(pos, frameTimeCounter);
-//        if( den > 0.01 ) // if inside
-//        {
-//            // do lighting
-//         //    float dif = clamp((den - map(pos+0.3*sunVec,oct))/0.25, 0.0, 1.0 );
-//            float dif = clamp((den - cloudDensity(pos+0.3*sunVec, frameTimeCounter))/0.25, 0.0, 1.0 );
-//            vec3  lin = vec3(0.65,0.65,0.75)*1.1 + 0.8*vec3(1.0,0.6,0.3)*dif;
-//            vec4  col = vec4( mix( vec3(1.0,0.93,0.84), vec3(0.25,0.3,0.4), den ), den );
-//            col.xyz *= lin;
-//            // fog
-//         //    col.xyz = mix(col.xyz,bgcol, 1.0-exp2(-0.1*t));
-//            // composite front to back
-//            col.w    = min(col.w*8.0*dt,1.0);
-//            col.rgb *= col.a;
-//            sum += col*(1.0-sum.a);
-//         //    sum = vec4(1.0,0.0,0.0,1.0);
-//        }
-//        // advance ray
-//        t += dt;
-//        // until far clip or full opacity
-//        if( t>tmax || sum.a>0.99 ) break;
-//     }
-
-//     return clamp( sum, 0.0, 1.0 );
-// }
-
+vec3 testSunVec = vec3(-1.0, 0.0, 0.0);
 
 vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmaxx )
 {
-    // 调整边界使云层更高更厚
     const float yb = 180;  // 降低底部
     const float yt = 250;  // 提高顶部
     
@@ -242,11 +160,9 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmax
 
     // 光线步进循环
     vec4 sum = vec4(0.0);
-    float transmittance = 1.0;  // 新增：透射率
     
     for( int i=0; i<200*kDiv; i++ )
     {
-        // 增大步长以覆盖更大区域
         float dt = max(0.1, 0.04*t/float(kDiv));
 
         vec3 pos = ro + t*rd;
@@ -254,67 +170,36 @@ vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmax
         
         if( den > 0.01 )
         {
-            // ========== 关键修改：增强光照效果 ==========
-            // 1. 增加光照采样距离
-            float lightStep = 0.3; // 增加光照采样距离
-            vec3 lightPos = pos + lightStep * testSunVec;
+            // --- 填充的代码块开始 ---
+
+            // 计算光照
+            // 通过在朝向太阳方向上对云密度进行二次采样来模拟简单的散射
+            float dif = clamp((den - cloudDensity(pos + 0.3 * sunDir, frameTimeCounter)) / 0.25, 0.0, 1.0);
+
+            // 定义光照颜色和环境光
+            vec3 lin = vec3(0.65, 0.65, 0.75) * 1.1 + 0.8 * vec3(1.0, 0.6, 0.3) * dif;
+
+            // 定义云的颜色，根据密度从亮色过渡到暗色
+            vec4 col = vec4(mix(vec3(1.0, 0.93, 0.84), vec3(0.25, 0.3, 0.4), den), den);
+
+            // 将光照应用到云的颜色上
+            col.xyz *= lin;
+
+            // 根据步长和密度计算当前步的透明度
+            col.a = min(col.a * 8.0 * dt, 1.0);
+
+            // 将颜色与透明度预乘
+            col.rgb *= col.a;
+
+            // 从前向后混合颜色
+            sum += col * (1.0 - sum.a);
             
-            // 2. 多次采样获取更准确的光照
-            float lightDensity = 0.0;
-            lightDensity += cloudDensity(
-                lightPos + lightStep * testSunVec, 
-                frameTimeCounter
-            );
-            
-            // 3. 增强密度差异计算
-            float densityDiff = den - lightDensity;
-            float dif = clamp(densityDiff * 2.0, 0.0, 1.0); // 增加对比度
-            
-            // 4. 改进的光照模型
-            vec3 ambient = vec3(0.9, 0.9, 0.9); // 环境光
-            vec3 directLight = vec3(1.0, 1.0, 1.0) * dif; // 直射光
-            
-            // 5. 考虑光线透射
-            float lightTrans = exp(-lightDensity * lightStep * 2.0);
-            vec3 lin = ambient + directLight * lightTrans;
-            
-            // 6. 基于高度的颜色变化
-            float heightFactor = clamp((pos.y - yb) / (yt - yb), 0.0, 1.0);
-            vec3 cloudColor = mix(
-                vec3(0.9, 0.9, 0.9),  // 底部较暗
-                vec3(1.0, 1.0, 1.0), // 顶部较亮
-                heightFactor
-            );
-            
-            vec4 col = vec4(cloudColor * lin, den);
-            
-            // ========== 能量守恒的体渲染 ==========
-            // 计算吸收和散射
-            float absorption = den * dt * 0.8;
-            float scattering = den * dt * 0.5;
-            
-            // 透射率更新
-            float transStep = exp(-absorption);
-            transmittance *= transStep;
-            
-            // 光源贡献
-            vec3 lightContrib = col.rgb * scattering * transmittance;
-            
-            // 合成
-            sum.rgb += lightContrib;
-            sum.a = 1.0 - transmittance;
-            
-            // ========== 提前退出优化 ==========
-            if(sum.a > 0.99 || transmittance < 0.01) break;
+            // --- 填充的代码块结束 ---
         }
         
         t += dt;
         if(t > tmax) break;
     }
-    
-    // 添加大气散射效果
-    float atmos = clamp(dot(sunVec, rd), 0.0, 1.0);
-    sum.rgb += 0.2 * vec3(1.0, 0.7, 0.4) * pow(atmos, 8.0) * (1.0 - sum.a);
     
     return clamp(sum, 0.0, 1.0);
 }

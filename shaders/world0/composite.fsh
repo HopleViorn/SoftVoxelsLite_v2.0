@@ -28,8 +28,6 @@ layout(location = 0) out vec3 sceneColor;
 
 uniform sampler2D noisetex;
 uniform float frameTimeCounter;
-uniform vec3 sunVec;
-
 
 in vec2 uv;
 
