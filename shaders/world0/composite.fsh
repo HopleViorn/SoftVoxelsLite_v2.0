@@ -429,7 +429,7 @@ void main() {
     float tmaxx;
     if (!landMask(sceneDepth.x)) {
         // 天空区域，使用默认远距离
-        tmaxx = 1000;
+        tmaxx = -1;
     } else {
         // 有场景几何，计算光线方向上的最大步进距离
         
@@ -448,10 +448,10 @@ void main() {
 
         
         // 确保值在合理范围内
-        tmaxx = clamp(tmaxx, 0.0, 1000.0);
+        tmaxx = clamp(tmaxx, 0.0, 1000000000.0);
     }
     
     ivec2 px = ivec2(gl_FragCoord.xy);
-    vec4 clouds = renderShadertoyClouds(ro, rd, px, tmaxx);
+    vec4 clouds = renderShadertoyClouds(ro, rd, px, skyColor, tmaxx);
     sceneColor = sceneColor * (1.0 - clouds.a) + clouds.rgb;
 }

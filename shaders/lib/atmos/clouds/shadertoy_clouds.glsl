@@ -1,9 +1,6 @@
-
 // 0: no LOD
 // 1: yes LOD
 #define USE_LOD 0
-
-
 
 // 高质量Simplex噪声实现
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -11,15 +8,16 @@ vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
 vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
 
+const float bottom_y = 150.0;
+const float top_y =220.0;
+
 float simplexNoise(vec3 v) {
     const vec2 C = vec2(1.0/6.0, 1.0/3.0);
     const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
 
-    // 第一角
     vec3 i  = floor(v + dot(v, C.yyy));
     vec3 x0 = v - i + dot(i, C.xxx);
 
-    // 其他角
     vec3 g = step(x0.yzx, x0.xyz);
     vec3 l = 1.0 - g;
     vec3 i1 = min(g.xyz, l.zxy);
@@ -29,14 +27,12 @@ float simplexNoise(vec3 v) {
     vec3 x2 = x0 - i2 + C.yyy;
     vec3 x3 = x0 - D.yyy;
 
-    // 排列
     i = mod289(i);
     vec4 p = permute(permute(permute(
-             i.z + vec4(0.0, i1.z, i2.z, 1.0))
-           + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-           + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+                 i.z + vec4(0.0, i1.z, i2.z, 1.0))
+               + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+               + i.x + vec4(0.0, i1.x, i2.x, 1.0));
 
-    // 梯度计算
     float n_ = 0.142857142857; // 1/7
     vec3 ns = n_ * D.wyz - D.xzx;
 
@@ -64,14 +60,12 @@ float simplexNoise(vec3 v) {
     vec3 p2 = vec3(a1.xy, h.z);
     vec3 p3 = vec3(a1.zw, h.w);
 
-    // 归一化梯度
     vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
     p0 *= norm.x;
     p1 *= norm.y;
     p2 *= norm.z;
     p3 *= norm.w;
 
-    // 混合结果
     vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
     m = m * m;
     return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
@@ -94,121 +88,167 @@ float fbm(vec3 p, int octaves, float lacunarity, float gain) {
     return total / maxValue;
 }
 
-// 改进的云密度函数
 float cloudDensity(vec3 p, float time) {
-    // p.y -= 100;
-    float scale = 0.01;
-    float time_scale = 0.1;
+    float scale = 0.005; 
+    float time_scale = 0.05;
 
-    //不scale y
+    // 使用FBM创建基础云形状
+    vec3 q = p * scale + vec3(0.0, 0.0, time * time_scale*0.1);
+    float base_noise = fbm(q, 4, 2.0, 0.5);
 
-    p = scale * p;
+    // 添加一些侵蚀/细节噪声
+    vec3 r = p * scale * 3.0 + vec3(0.0, 0.0, time * time_scale * 2.0);
+    float detail_noise = fbm(r, 3, 3.0, 0.5);
 
-    // p.x *= scale;
-    // p.z *= scale;
+    // 结合噪声，并创建一个更清晰的云底
+    float density = base_noise - detail_noise * 0.2;
     
+    // 添加一个平滑的垂直渐变来塑造云的底部和顶部
+    float vertical_gradient = smoothstep(bottom_y, bottom_y + 20.0, p.y) * (1.0 - smoothstep(top_y - 20.0, top_y, p.y));
+    density *= vertical_gradient;
 
-    // 基础形状
-    vec3 q = p * 0.5 + vec3(0.0, time*time_scale*0.05, time*time_scale*0.1);
-    float shape = fbm(q, 4, 0.1, 0.01);
-    
-    // 细节层
-    vec3 r = p * 1.5 + vec3(0.0, time*time_scale*0.1, 0.0);
-    float details = fbm(r, 3, 2.5, 0.4);
-    
-    // 结合形状和细节
-    float density = shape - details*0.2;
-    
-    // 添加垂直渐变
-    density -= smoothstep(0.0, 0.3, p.y/200.0);
-    density += smoothstep(0.7, 1.0, p.y/200.0)*0.3;
-    
-    return clamp(density, 0.0, 1.0);
+    return clamp(density * 1.5, 0.0, 1.0);
 }
 
-const int kDiv = 1; // make bigger for higher quality
+// =================================================================
+// ================ 新增和改进的光照代码部分 ========================
+// =================================================================
 
-vec3 testSunVec = vec3(-1.0, 0.0, 0.0);
+const int kDiv = 1; 
 
-vec4 raymarch( in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmaxx )
+// const vec3 SUN_COLOR = vec3(1.0, 0.85, 0.7); // 太阳光颜色
+const vec3 SUN_COLOR = vec3(1.0); // 太阳光颜色
+const float SCATTERING_COEFFICIENT = 0.9; // 散射系数，影响光的传播
+const float ABSORPTION_COEFFICIENT = 0.1; // 吸收系数，影响云的暗度
+const float DENSITY_MULTIPLIER = 1; // 整体密度乘数
+
+// Henyey-Greenstein 相位函数，模拟光在云中的散射方向
+// g > 0: 前向散射 (产生漂亮的银边)
+// g < 0: 后向散射
+// g = 0: 均匀散射
+float henyeyGreenstein(float cos_theta, float g) {
+    float g2 = g * g;
+    return (1.0 - g2) / (4.0 * 3.14159265 * pow(1.0 - 2.0 * g * cos_theta + g2, 1.5));
+}
+
+// 计算从pos点朝太阳方向的光线能量 (通过二次步进)
+float getLightEnergy(vec3 pos, float time) {
+    float light_march_steps = 2.0;
+    float light_march_dist = 30.0 / light_march_steps; // 向光步进的总距离
+    float transmittance = 1.0;
+
+    for (int i = 0; i < int(light_march_steps); i++) {
+        vec3 light_pos = pos + sunDir * float(i) * light_march_dist;
+        float density_sample = cloudDensity(light_pos, time);
+        if (density_sample > 0.01) {
+            // 根据比尔-朗伯定律计算透光率
+            transmittance *= exp(-density_sample * DENSITY_MULTIPLIER * SCATTERING_COEFFICIENT * light_march_dist);
+        }
+        if (transmittance < 0.001) break; // 提前退出以优化
+    }
+    return transmittance;
+}
+
+
+vec4 raymarch(in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmaxx)
 {
-    const float yb = 180;  // 降低底部
-    const float yt = 250;  // 提高顶部
     
-    float tb = (yb-ro.y)/rd.y;
-    float tt = (yt-ro.y)/rd.y;
+    float tb = (bottom_y - ro.y) / rd.y;
+    float tt = (top_y - ro.y) / rd.y;
 
-    // find tigthest possible raymarching segment
-    float tmin, tmax;
+    float tmin;
+    float tmax;
+
+    // if (tb * tt < 0) {
+    //     tmin = 0;
+    //     tmax = 1000.0;
+    // }else{
+    //     tt = abs(tt);
+    //     tb = abs(tb);
+    //     tmin = min(tt, tb);
+    //     tmax = max(tt, tb);
+    // }
+
+    tmax = 300.0;
+    tmin = 0.0;
 
 
-    tmin = min(tt, tb);
-    tmax = max(tt, tb);
+    if (tmaxx > 0) {
+        tmax = min(tmax, tmaxx);
+    }
 
-    // return vec4(tmaxx, 0.0, 0.0, 1.0);
-    tmax = min(tmax, tmaxx);
-    tmin = min(tmin, tmaxx);
+    // tmax = min(tmax, 300.0);
+    // tmin = min(tmin, tmax);
 
-    tmin = max(tmin, 0.0);
-    tmax = min(tmax, 300.0);
-
-    if(tmax <= tmin) {
+    if (tmax <= tmin) {
         return vec4(0.0);
     }
+
+    vec3 SKY_COLOR = vec3(1.0);
     
     float t = tmin;
-
-    // 光线步进循环
     vec4 sum = vec4(0.0);
+    float transmittance = 0.8; // 沿着视线方向的透光率
     
-    for( int i=0; i<200*kDiv; i++ )
+    // 主光线步进循环
+    for (int i = 0; i < 128 * kDiv; i++)
     {
-        float dt = max(0.1, 0.04*t/float(kDiv));
+        if (t > tmax || transmittance < 0.01) break;
 
-        vec3 pos = ro + t*rd;
+        float dt = max(0.1, 0.04*t/float(kDiv));
+        vec3 pos = ro + t * rd;
         float den = cloudDensity(pos, frameTimeCounter);
         
-        if( den > 0.01 )
+        if (den > 0.01)
         {
-            // --- 填充的代码块开始 ---
+            // --- 全新的光照计算代码块 ---
 
-            // 计算光照
-            // 通过在朝向太阳方向上对云密度进行二次采样来模拟简单的散射
-            float dif = clamp((den - cloudDensity(pos + 0.3 * sunDir, frameTimeCounter)) / 0.25, 0.0, 1.0);
+            // 1. 计算到达此点的光能 (考虑自阴影)
+            float light_energy = getLightEnergy(pos, frameTimeCounter);
 
-            // 定义光照颜色和环境光
-            vec3 lin = vec3(0.65, 0.65, 0.75) * 1.1 + 0.8 * vec3(1.0, 0.6, 0.3) * dif;
+            // 2. 计算散射
+            float cos_theta = dot(rd, sunDir);
+            float phase_forward = henyeyGreenstein(cos_theta, 0.4);  // 前向散射 (银边效果)
+            float phase_backward = henyeyGreenstein(cos_theta, -0.15); // 后向散射 (补光)
+            vec3 scattering_color = SUN_COLOR * (phase_forward + phase_backward);
 
-            // 定义云的颜色，根据密度从亮色过渡到暗色
-            vec4 col = vec4(mix(vec3(1.0, 0.93, 0.84), vec3(0.25, 0.3, 0.4), den), den);
+            // 3. 计算环境光/环境遮蔽
+            // 一个简单的近似：密度越高，吸收的环境光越多
+            vec3 ambient_light = SKY_COLOR * (1.0 - den * 0.7);
 
-            // 将光照应用到云的颜色上
-            col.xyz *= lin;
-
-            // 根据步长和密度计算当前步的透明度
-            col.a = min(col.a * 8.0 * dt, 1.0);
-
-            // 将颜色与透明度预乘
-            col.rgb *= col.a;
-
-            // 从前向后混合颜色
-            sum += col * (1.0 - sum.a);
+            // 4. 结合光照
+            // (散射光 * 阳光) + 环境光
+            vec3 final_light =  light_energy * scattering_color + ambient_light;
             
-            // --- 填充的代码块结束 ---
+            // 5. 计算当前步的颜色和吸收
+            float absorption = exp(-den * DENSITY_MULTIPLIER * ABSORPTION_COEFFICIENT * dt);
+            float scattering = exp(-den * DENSITY_MULTIPLIER * SCATTERING_COEFFICIENT * dt);
+            
+            // 当前步贡献的颜色 = 光照 * (1 - 散射率)
+            vec3 step_color = final_light * (1.0 - scattering);
+
+            // 6. 从后向前混合
+            // 累加颜色，并乘以视线方向的透光率
+            sum.rgb += step_color * transmittance;
+            
+            // 更新视线方向的透光率
+            transmittance *= absorption;
+
+            // 基于光学深度的物理正确透明度计算
+            float optical_depth = -log(max(transmittance, 1e-5));
+            float alpha = 1.0 - exp(-optical_depth * DENSITY_MULTIPLIER * 0.5);
+            sum.a = clamp(alpha, 0.0, 1.0);
         }
         
         t += dt;
-        if(t > tmax) break;
     }
     
     return clamp(sum, 0.0, 1.0);
 }
 
-vec4 renderShadertoyClouds( in vec3 ro, in vec3 rd, in ivec2 px, in float tmaxx )
+// 保持不变的入口函数
+vec4 renderShadertoyClouds( in vec3 ro, in vec3 rd, in ivec2 px, in vec3 bgcol, in float tmaxx )
 {
-    vec4 res = raymarch( ro, rd, vec3(0.0), px, tmaxx );
+    vec4 res = raymarch( ro, rd, bgcol, px, tmaxx );
     return res;
 }
-
-
-
