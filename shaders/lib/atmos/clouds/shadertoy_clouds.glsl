@@ -92,27 +92,19 @@ float cloudDensity(vec3 p, float time) {
     float scale = 0.005; 
     float time_scale = 0.05;
 
-    // 使用FBM创建基础云形状
     vec3 q = p * scale + vec3(0.0, 0.0, time * time_scale*0.1);
     float base_noise = fbm(q, 4, 2.0, 0.5);
 
-    // 添加一些侵蚀/细节噪声
     vec3 r = p * scale * 3.0 + vec3(0.0, 0.0, time * time_scale * 2.0);
     float detail_noise = fbm(r, 3, 3.0, 0.5);
 
-    // 结合噪声，并创建一个更清晰的云底
     float density = base_noise - detail_noise * 0.2;
     
-    // 添加一个平滑的垂直渐变来塑造云的底部和顶部
     float vertical_gradient = smoothstep(bottom_y, bottom_y + 20.0, p.y) * (1.0 - smoothstep(top_y - 20.0, top_y, p.y));
     density *= vertical_gradient;
 
     return clamp(density * 1.5, 0.0, 1.0);
 }
-
-// =================================================================
-// ================ 新增和改进的光照代码部分 ========================
-// =================================================================
 
 const int kDiv = 1; 
 
@@ -159,18 +151,18 @@ vec4 raymarch(in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px, in float tmaxx
     float tmin;
     float tmax;
 
-    // if (tb * tt < 0) {
-    //     tmin = 0;
-    //     tmax = 1000.0;
-    // }else{
-    //     tt = abs(tt);
-    //     tb = abs(tb);
-    //     tmin = min(tt, tb);
-    //     tmax = max(tt, tb);
-    // }
+    if (tb * tt < 0) {
+        tmin = 0;
+        tmax = 1000.0;
+    }else{
+        tt = abs(tt);
+        tb = abs(tb);
+        tmin = min(tt, tb);
+        tmax = max(tt, tb);
+    }
 
-    tmax = 300.0;
-    tmin = 0.0;
+    // tmax = 20.0;
+    // tmin = 0.0;
 
 
     if (tmaxx > 0) {
